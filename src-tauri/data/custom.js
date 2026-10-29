@@ -24,3 +24,32 @@ window.open = function (url, target, features) {
 }
 
 document.addEventListener('click', hookClick, { capture: true })
+{{
+  "tauri": {
+    "bundle": {
+      "macOS": {
+        "plist": {
+          "NSCameraUsageDescription": "应用需要摄像头权限，用于扫码、拍照",
+          "NSMicrophoneUsageDescription": "应用需要麦克风权限，用于语音录制",
+          "NSPhotoLibraryUsageDescription": "应用需要访问相册，用于选择图片文件",
+          "NSLocationWhenInUseUsageDescription": "应用需要定位权限，用于签到打卡",
+          "UIBackgroundModes": ["audio"],
+          "telephony": true
+        }
+      },
+      "windows": {
+        "webviewInstallMode": {
+          "type": "embedBootstrapper"
+        },
+        "minimumWebview2Version": "110.0.1531.0",
+        "nsis": {
+          "installMode": "currentUser",
+          "languages": ["SimpChinese"]
+        },
+        "wix": {
+          "language": "zh-CN"
+        }
+      }
+    }
+  }
+}
