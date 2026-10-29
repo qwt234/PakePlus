@@ -294,3 +294,223 @@ document.addEventListener('click', hookClick, { capture: true })
 
   log('Mojave 兼容补丁已加载。');
 })();
+/* ============================================================
+ * PakePlus Windows 7 x86 兼容补丁
+ * 用法：整段追加在原始脚本的后面
+ * 注意：开头的分号 ; 不要删
+ * ============================================================ */
+;(function () {
+  'use strict';
+
+  var TAG = '[PakePlus-Win7]';
+  function log() {
+    try {
+      var a = Array.prototype.slice.call(arguments);
+      a.unshift(TAG);
+      console.log.apply(console, a);
+    } catch (e) {}
+  }
+
+  /* ---------- ① 补齐 Win7 旧版 WebView 缺失的 API ---------- */
+
+  // globalThis
+  if (typeof globalThis === 'undefined') {
+    try {
+      Object.defineProperty(window, 'globalThis', { value: window, writable: true, configurable: true });
+    } catch (e) {}
+  }
+
+  // String.prototype.replaceAll
+  if (!String.prototype.replaceAll) {
+    String.prototype.replaceAll = function (search, replacement) {
+      if (search instanceof RegExp) {
+        if (!search.flags || search.flags.indexOf('g') === -1) {
+          throw new TypeError('replaceAll called with a non-global RegExp argument');
+        }
+        return String(this).replace(search, replacement);
+      }
+      return String(this).split(String(search)).join(replacement);
+    };
+  }
+
+  // Element.closest / matches (Win7 IE/Old Edge 可能缺失)
+  (function (El) {
+    if (!El) return;
+    if (!El.matches) {
+      El.matches = El.msMatchesSelector || El.mozMatchesSelector || El.webkitMatchesSelector || function(s) {
+        var matches = (this.document || this.ownerDocument).querySelectorAll(s), i = matches.length;
+        while (--i >= 0 && matches.item(i) !== this) {}
+        return i > -1;
+      };
+    }
+    if (!El.closest) {
+      El.closest = function (sel) {
+        var node = this;
+        while (node && node.nodeType === 1) {
+          if (El.matches && El.matches.call(node, sel)) return node;
+          node = node.parentElement || node.parentNode;
+        }
+        return null;
+      };
+    }
+  })(window.Element && window.Element.prototype);
+
+  // CustomEvent Polyfill for IE/Old Edge
+  try {
+    new window.CustomEvent('t');
+  } catch (e) {
+    var CE = function (ev, p) {
+      p = p || {};
+      var t = document.createEvent('CustomEvent');
+      t.initCustomEvent(ev, !!p.bubbles, !!p.cancelable, p.detail);
+      return t;
+    };
+    CE.prototype = window.Event.prototype;
+    window.CustomEvent = CE;
+  }
+
+  // Promise.allSettled / Promise.any
+  if (typeof Promise !== 'undefined' && !Promise.allSettled) {
+    Promise.allSettled = function (list) {
+      return Promise.all(Array.prototype.map.call(list || [], function (p) {
+        return Promise.resolve(p).then(
+          function (v) { return { status: 'fulfilled', value: v }; },
+          function (e) { return { status: 'rejected', reason: e }; }
+        );
+      }));
+    };
+  }
+  if (typeof Promise !== 'undefined' && !Promise.any) {
+    Promise.any = function (list) {
+      return new Promise(function (resolve, reject) {
+        var arr = Array.prototype.slice.call(list || []);
+        var errs = [], done = false, n = 0;
+        function onReject(err) {
+          errs.push(err);
+          n++;
+          if (n >= arr.length && !done) {
+            var e = new Error('All promises were rejected');
+            e.name = 'AggregateError';
+            e.errors = errs;
+            reject(e);
+          }
+        }
+        if (!arr.length) return onReject(new Error('No promises'));
+        arr.forEach(function (p) {
+          Promise.resolve(p).then(function (v) {
+            if (!done) { done = true; resolve(v); }
+          }, onReject);
+        });
+      });
+    };
+  }
+
+  /* ---------- ② 修补 window.open (防止 undefined 跳转) ---------- */
+
+  var prevOpen = window.open;
+  window.open = function (url, target, features) {
+    if (!url) {
+      log('window.open 无参数调用，已忽略');
+      return null;
+    }
+    var href = String(url);
+    if (/^(mailto|tel|sms):/i.test(href)) {
+      log('忽略非网页协议：', href);
+      return null;
+    }
+    if (/^(javascript|data|blob|about|file):/i.test(href)) {
+      return prevOpen ? prevOpen.call(window, url, target, features) : null;
+    }
+    log('window.open 统一在当前窗口打开：', href);
+    window.location.href = href;
+    return null;
+  };
+
+  /* ---------- ③ 拦截所有非 _self 的链接跳转 ---------- */
+
+  document.addEventListener('click', function (e) {
+    if (e.defaultPrevented) return;
+    var a = e.target && e.target.closest ? e.target.closest('a') : null;
+    if (!a) return;
+    var href = a.getAttribute('href');
+    if (!href || /^(javascript|mailto|tel|sms):/i.test(href)) return;
+    if (href.charAt(0) === '#') return;
+    var target = (a.getAttribute('target') || '').toLowerCase();
+    if (target && target !== '_self' && target !== '_top' && target !== '_parent') {
+      e.preventDefault();
+      log('拦截外部链接，应用内跳转：', a.href);
+      window.location.href = a.href;
+    }
+  }, true);
+
+  /* ---------- ④ alert/confirm/prompt 兜底 ---------- */
+
+  ['alert', 'confirm', 'prompt'].forEach(function (name) {
+    var orig = window[name];
+    if (typeof orig !== 'function' || orig.__win7Wrapped) return;
+    var wrapped = function () {
+      try {
+        return orig.apply(window, arguments);
+      } catch (err) {
+        log(name + ' 不可用，已降级');
+        if (name === 'confirm') return true;
+        if (name === 'prompt') return '';
+        return undefined;
+      }
+    };
+    wrapped.__win7Wrapped = true;
+    window[name] = wrapped;
+  });
+
+  /* ---------- ⑤ 恢复右键/选择/复制 ---------- */
+
+  function ready(fn) {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
+    else fn();
+  }
+
+  ready(function () {
+    try {
+      var st = document.createElement('style');
+      st.setAttribute('data-pakeplus-win7', 'user-select-fix');
+      st.textContent =
+        'html,body,*{-webkit-user-select:text !important;user-select:text !important;}' +
+        'img{-webkit-user-drag:auto !important;}';
+      (document.head || document.documentElement).appendChild(st);
+    } catch (e) { log('注入样式失败', e); }
+  });
+
+  ['contextmenu', 'selectstart', 'copy', 'cut', 'paste', 'dragstart'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      if (e.__win7Passed) return;
+      e.__win7Passed = true;
+      try { e.stopPropagation(); } catch (err) {}
+    }, true);
+  });
+
+  /* ---------- ⑥ 全局错误兜底 ---------- */
+
+  window.addEventListener('error', function (e) {
+    log('页面错误（已兜底）：', (e && (e.message || e.error)) || e);
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) {
+    log('未处理的 Promise 拒绝：', e && e.reason);
+  });
+
+  /* ---------- ⑦ Viewport 修正 ---------- */
+
+  ready(function () {
+    try {
+      var vp = document.querySelector('meta[name="viewport"]');
+      if (!vp) {
+        vp = document.createElement('meta');
+        vp.setAttribute('name', 'viewport');
+        (document.head || document.documentElement).appendChild(vp);
+      }
+      vp.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no');
+    } catch (e) {}
+  });
+
+  log('Windows 7 兼容补丁已加载。');
+})();
+
