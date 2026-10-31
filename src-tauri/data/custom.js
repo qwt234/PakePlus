@@ -513,4 +513,68 @@ document.addEventListener('click', hookClick, { capture: true })
 
   log('Windows 7 兼容补丁已加载。');
 })();
+(function(){
+    console.log("✅ 巴彦淖尔校园食安监管平台 - 文件导出增强脚本加载完成");
 
+    // 1. 拦截平台原有所有<a>下载链接（平台导出报表大多是a标签）
+    const originAnchorClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function(){
+        // 判断是否为导出下载链接
+        if( (this.download || this.href.includes('export') || this.href.includes('download') || this.href.includes('excel') || this.href.includes('pdf')) && this.href ){
+            const link = document.createElement('a');
+            link.href = this.href;
+            link.download = this.download || "食安台账报表";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            return;
+        }
+        return originAnchorClick.call(this);
+    }
+
+    // 2. 拦截原生JS导出（blob二进制流，很多管理平台Excel导出用Blob）
+    const originalCreateObjectURL = URL.createObjectURL;
+    URL.createObjectURL = function(blob){
+        const url = originalCreateObjectURL.call(URL, blob);
+        // 捕获Blob生成的下载，自动触发系统保存弹窗
+        if(blob && (blob.type.includes('excel') || blob.type.includes('csv') || blob.type.includes('pdf') || blob.type.includes('octet-stream'))){
+            setTimeout(()=>{
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `食安台账_${new Date().toLocaleDateString()}`;
+                a.click();
+            },100)
+        }
+        return url;
+    }
+
+    // 3. 平台通用导出函数，备用，网页控制台也可手动调用
+    window.exportFoodSafeFile = function(content,fileName,mimeType){
+        const blob = new Blob([content],{type:mimeType||"application/octet-stream"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+})();
+{
+  "tauri": {
+    "bundle": {
+      "windows": {
+        "nsis": {
+          // 只包含简体中文，安装包强制中文界面
+          "languages": ["SimpChinese"],
+          // 不显示语言选择弹窗，直接中文
+          "displayLanguageSelector": false,
+          // 中文语言相关
+          "language": "zh-CN"
+        },
+        // 中文安装包描述
+        "description": "巴彦淖尔市校园食品安全数字化监管平台桌面端",
+        "productName": "校园食安监管平台"
+      }
+    }
+  }
+}
