@@ -24,75 +24,61 @@ window.open = function (url, target, features) {
 }
 
 document.addEventListener('click', hookClick, { capture: true })
-// PakePlus 文件导出增强脚本 | 兼容 Win7 + macOS 10.13+
-// 同时兼容旧WebKit / IE旧内核Blob兼容修复，巴彦淖尔校园食品安全平台使用
+// PakePlus 文件导出脚本，仅适配 macOS 10.13
 (function(){
-    // ========== 旧系统内核兼容垫片 ==========
-    // Mac 10.13 Safari 使用 webkitURL 兼容
+    // macOS10.13 WebKit 兼容垫片
     if (!window.URL && window.webkitURL) {
         window.URL = window.webkitURL;
     }
-    // 兼容旧浏览器Blob构造
-    if (typeof Blob === 'undefined') {
-        console.warn("❌ 当前环境不支持Blob，文件导出功能不可用");
+    if (typeof Blob === undefined) {
+        console.warn("Blob不可用，文件导出功能失效");
         return;
     }
 
-    // ========== 拦截页面原生a标签下载（修复Pake桌面端保存弹窗失效） ==========
-    const originalAClick = HTMLAnchorElement.prototype.click;
-    HTMLAnchorElement.prototype.click = function() {
-        // 判断下载属性
-        if (this.download && (this.href || this.href !== '')) {
-            try {
-                const tempLink = document.createElement('a');
-                tempLink.href = this.href;
-                tempLink.download = this.download;
-                // 唤起下载
+    // 拦截a标签下载链接，唤起系统保存弹窗
+    const originalClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function(){
+        if(this.download && this.href){
+            try{
+                const a = document.createElement('a');
+                a.href = this.href;
+                a.download = this.download;
                 window.open(this.href, '_self');
                 return;
-            } catch(e) {
-                console.error("a标签下载捕获异常", e);
+            }catch(e){
+                console.error("a标签下载异常",e);
             }
         }
-        return originalAClick.call(this);
-    };
+        return originalClick.call(this);
+    }
 
-    // ========== 全局导出函数：通用文件导出 ==========
-    window.pakeExportFile = function(content, filename, mimeType = 'text/plain;charset=utf-8') {
-        try {
-            const blob = new Blob([content], { type: mimeType });
-            const objUrl = URL.createObjectURL(blob);
-
-            const a = document.createElement('a');
-            a.href = objUrl;
+    // 通用文件导出方法
+    window.pakeExportFile = function(content, filename, mimeType="text/plain;charset=utf-8"){
+        try{
+            const blob = new Blob([content], {type:mimeType});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
             a.download = filename;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-
-            // 延时释放blob地址，修复Mac10.13 / Win7下文件损坏、空白问题
-            setTimeout(() => {
-                URL.revokeObjectURL(objUrl);
-            }, 150);
-        } catch (err) {
-            console.error("文件导出失败", err);
-            alert("导出失败：当前系统版本较低，导出功能受限");
+            // 延迟释放，修复mac10.13文件损坏
+            setTimeout(()=>URL.revokeObjectURL(url),150);
+        }catch(err){
+            console.error("导出失败",err);
+            alert("文件导出失败");
         }
-    };
+    }
 
-    // ========== 快捷导出封装 ==========
-    // 导出CSV
-    window.pakeExportCsv = function(csvContent, fileName = "data.csv") {
-        window.pakeExportFile(csvContent, fileName, 'text/csv;charset=utf-8');
-    };
-    // 导出JSON
-    window.pakeExportJson = function(jsonObj, fileName = "data.json") {
-        window.pakeExportFile(JSON.stringify(jsonObj, null, 2), fileName, 'application/json;charset=utf-8');
-    };
-    // 导出纯文本
-    window.pakeExportText = function(text, fileName = "data.txt") {
-        window.pakeExportFile(text, fileName, 'text/plain;charset=utf-8');
-    };
+    // 快捷导出CSV
+    window.pakeExportCsv = function(csvContent, fileName="data.csv"){
+        window.pakeExportFile(csvContent, fileName, "text/csv;charset=utf-8");
+    }
+    // 快捷导出JSON
+    window.pakeExportJson = function(jsonObj, fileName="data.json"){
+        window.pakeExportFile(JSON.stringify(jsonObj,null,2), fileName, "application/json;charset=utf-8");
+    }
 
-    console.log("✅ PakePlus导出脚本加载成功 | 兼容Win7 & macOS10.13");
+    console.log("✅ 导出脚本已加载，适配macOS10.13");
 })();
