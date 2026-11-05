@@ -65,3 +65,74 @@ document.addEventListener('click', hookClick, { capture: true })
     }
   }
 }
+(function() {
+    // ========== Mac 10.13 白屏修复核心 ==========
+    // 旧版WebKit兼容垫片，修复Promise、fetch渲染阻塞导致空白页面
+    if (!window.Promise || /AppleWebKit\/605\.1\.15/.test(navigator.userAgent)) {
+        // 兼容requestAnimationFrame
+        if (!window.requestAnimationFrame) {
+            window.requestAnimationFrame = function(cb){
+                return setTimeout(cb, 16);
+            }
+        }
+        // 修复Blob构造兼容
+        const OldBlob = window.Blob;
+        window.Blob = function(parts, opts){
+            opts = opts || {};
+            if(!opts.type) opts.type = '';
+            return new OldBlob(parts, opts);
+        }
+    }
+
+    // 延迟渲染兜底：页面加载异常时重试渲染，解决白屏
+    let retryCount = 0;
+    function checkBlank() {
+        retryCount++;
+        const body = document.body;
+        if (body && body.innerHTML.trim().length < 100 && retryCount < 6) {
+            location.reload();
+        }
+    }
+    setTimeout(checkBlank, 1200);
+    setTimeout(checkBlank, 3000);
+
+    // ========== 文件导出功能（适配10.13旧webkit） ==========
+    // 拦截a标签下载链接
+    const originAnchorClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function() {
+        if(this.download && this.href) {
+            const tempA = document.createElement('a');
+            tempA.href = this.href;
+            tempA.download = this.download;
+            tempA.style.display = 'none';
+            document.body.appendChild(tempA);
+            tempA.click();
+            tempA.remove();
+            return;
+        }
+        return originAnchorClick.call(this);
+    }
+
+    // 全局导出函数，页面可调用：pakeExportFile(内容,文件名,mime)
+    window.pakeExportFile = function(content, filename, mimeType="text/plain;charset=utf-8"){
+        const blob = new Blob([content], {type: mimeType});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    }
+})();
+{
+  "tauri": {
+    "bundle": {
+      "macOS": {
+        "minimumSystemVersion": "10.13",
+        "languages": ["zh-Hans"]
+      }
+    }
+  }
+}
