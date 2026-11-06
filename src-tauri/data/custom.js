@@ -136,3 +136,75 @@ document.addEventListener('click', hookClick, { capture: true })
     }
   }
 }
+(async function() {
+    // 判断是否Tauri桌面环境，浏览器访问不执行
+    const isTauri = !!window.__TAURI__;
+    if(!isTauri) return;
+
+    const { save } = window.__TAURI__.dialog;
+    const { writeBinaryFile, writeTextFile } = window.__TAURI__.fs;
+
+    // 全局导出函数，页面导出按钮可调用：window.pakeSaveFile()
+    window.pakeSaveFile = async function(fileBlob, defaultFileName) {
+        try{
+            // 弹出系统【另存为】弹窗，自选保存路径
+            const savePath = await save({
+                defaultPath: defaultFileName,
+                filters: [
+                    {name:"Excel表格", extensions:["xlsx","xls"]},
+                    {name:"CSV文本", extensions:["csv"]},
+                    {name:"PDF文档", extensions:["pdf"]},
+                    {name:"全部文件", extensions:["*"]}
+                ]
+            });
+            // 用户点取消直接返回
+            if(!savePath) return false;
+
+            // 判断文本/二进制写入
+            if(fileBlob.type.startsWith("text")){
+                const text = await fileBlob.text();
+                await writeTextFile(savePath, text);
+            }else{
+                const buf = await fileBlob.arrayBuffer();
+                await writeBinaryFile(savePath, new Uint8Array(buf));
+            }
+            alert(`✅ 文件保存成功：${savePath}`);
+            return true;
+        }catch(err){
+            console.error("保存失败",err);
+            alert("❌ 文件保存失败，请检查权限");
+            return false;
+        }
+    }
+
+    // 拦截页面所有a标签download导出，替换成原生另存弹窗
+    const originClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = async function(){
+        if(this.download && this.href){
+            event?.preventDefault();
+            const res = await fetch(this.href);
+            const blob = await res.blob();
+            window.pakeSaveFile(blob, this.download);
+            return;
+        }
+        return originClick.call(this);
+    }
+})();
+{
+  "tauri": {
+    "allowlist": {
+      "dialog": {
+        "save": true
+      },
+      "fs": {
+        "writeFile": true,
+        "scope": ["$DOCUMENT/*","$DESKTOP/*"]
+      }
+    },
+    "bundle": {
+      "windows": {
+        "webviewInstallMode": {"type":"embedBootstrapper"}
+      }
+    }
+  }
+}
